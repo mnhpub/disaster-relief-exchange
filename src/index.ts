@@ -6,6 +6,7 @@ import { GetIncidentsQueryHandler } from './application/query-handlers/incident/
 import { GetOpenRequestsQueryHandler } from './application/query-handlers/resource-exchange/get-open-requests-query-handler.js';
 import { GetMostNeededTodayQueryHandler } from './application/query-handlers/resource-exchange/get-most-needed-today-query-handler.js';
 import { D1EventStore } from './infrastructure/persistence/event-store.js';
+import { ProjectionSynchronizer } from './infrastructure/persistence/projection-synchronizer.js';
 import { EventBus } from './infrastructure/messaging/event-bus.js';
 import { CreateIncident } from './domain/commands/incident/incident-commands.js';
 import { Location } from './domain/value-objects/shared.js';
@@ -28,6 +29,7 @@ export default {
 
     // Initialize services
     const eventStore = new D1EventStore(env.DB);
+    const synchronizer = new ProjectionSynchronizer(env.DB, eventStore);
     const eventBus = new EventBus();
 
     try {
@@ -36,6 +38,26 @@ export default {
         return new Response(JSON.stringify({ status: 'ok', environment: env.ENVIRONMENT }), {
           headers: { 'Content-Type': 'application/json' }
         });
+      }
+
+      // === Projection Sync Endpoint ===
+      if (path === '/admin/sync-projections' && method === 'POST') {
+        try {
+          await synchronizer.synchronize();
+          const checkpoint = synchronizer.getCheckpoint();
+          return new Response(
+            JSON.stringify({
+              message: 'Projections synchronized',
+              checkpoint
+            }),
+            { headers: { 'Content-Type': 'application/json' } }
+          );
+        } catch (error: any) {
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 500, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
       }
 
       // === Incident Endpoints ===
@@ -61,6 +83,8 @@ export default {
             Location.create(body.latitude, body.longitude)
           );
           const incidentId = await handler.execute(command);
+
+          ctx.waitUntil(synchronizer.synchronize().catch(console.error));
 
           return new Response(
             JSON.stringify({ incidentId: incidentId.value }),
@@ -101,7 +125,6 @@ export default {
           const body = await request.json() as any;
           const handler = new CreateRequestHandler(eventStore);
 
-          // This will be improved with proper auth context
           const command = {
             incidentId: { value: body.incidentId } as any,
             resourceType: body.resourceType,
@@ -113,6 +136,8 @@ export default {
           };
 
           const requestId = await handler.execute(command as any);
+
+          ctx.waitUntil(synchronizer.synchronize().catch(console.error));
 
           return new Response(
             JSON.stringify({ requestId: requestId.value }),
@@ -155,6 +180,22 @@ export default {
         JSON.stringify({ error: 'Internal server error' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+  },
+
+  async scheduled(
+    event: ScheduledEvent,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    try {
+      const eventStore = new D1EventStore(env.DB);
+      const synchronizer = new ProjectionSynchronizer(env.DB, eventStore);
+      
+      await synchronizer.synchronize();
+      console.log('Scheduled projection synchronization completed');
+    } catch (error) {
+      console.error('Error in scheduled projection sync:', error);
     }
   }
 };
