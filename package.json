@@ -1,0 +1,28 @@
+{
+  "name": "disaster-relief-exchange",
+  "version": "0.1.0",
+  "description": "A privacy-first disaster relief platform for resource coordination",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "bun run build:ts",
+    "build:ts": "tsc",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/d1": "^1.4.1",
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "uuid": "^14.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/uuid": "^11.0.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.112.0"
+  }
+}
